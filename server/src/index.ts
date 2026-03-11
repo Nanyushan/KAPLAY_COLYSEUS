@@ -8,10 +8,13 @@
  *
  * See: https://docs.colyseus.io/server/api/#constructor-options
  */
+// 入口文件：启动 Colyseus 服务器
+// - 使用 @colyseus/tools 提供的 `listen` 方法启动 HTTP + WebSocket 服务
+// - 实际的路由与房间配置由 `app.config` 导出
 import { listen } from "@colyseus/tools";
 
-// Import Colyseus config
+// 导入服务器配置（rooms、express 路由、监控等）
 import app from "./app.config";
 
-// Create and listen on 2567 (or PORT environment variable.)
+// 启动服务器（默认端口 2567，或被环境变量 `PORT` 覆盖）
 listen(app);

@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@colyseus/sdk": "^0.17.0",
-    "kaplay": "^3001.0.0-beta.8"
+    "kaplay": "^4000.0.0-alpha.17"
   },
   "devDependencies": {
     "cloudflared": "^0.5.3",
