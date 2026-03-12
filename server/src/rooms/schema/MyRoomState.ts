@@ -27,6 +27,9 @@ export class MyRoomState extends Schema {
     // MapSchema 的增删改会被自动推送到客户端，客户端可监听 onAdd/onRemove/onChange
     @type({ map: Player }) players = new MapSchema<Player>();
 
+    // 增加房间状态：'waiting' (等待匹配), 'playing' (已开始), 'finished' (已结束)
+    @type("string") public status: string = "waiting";
+
     // 冰球（Puck）的坐标（如果游戏中有物理或同步冰球位置）
     @type('number') public puckX: number;
     @type('number') public puckY: number;
@@ -38,3 +41,5 @@ export class MyRoomState extends Schema {
     @type('number') public leftScore: number = 0;
     @type('number') public rightScore: number = 0;
 }
+
+

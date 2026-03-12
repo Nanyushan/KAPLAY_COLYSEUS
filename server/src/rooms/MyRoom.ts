@@ -78,12 +78,30 @@ export class MyRoom extends Room {
 
   // 当房间实例被创建时调用（一次）
   onCreate(options: any) {
-    console.log("MyRoom created!");
+    // 1. 设置更丰富的元数据，方便大厅玩家筛选
+    this.setMetadata({
+        roomName: options.roomName || "未命名房间",
+        creator: options.creatorName || "匿名",
+        level: options.level || "新手",
+        // 标记是否为私有房间，如果是，在大厅列表查询时可以过滤掉
+        isPrivate: options.isPrivate || false 
+    });
 
-    // 将 messages 中定义的每一个消息类型注册到 Colyseus 的消息系统
+    this.setState(new MyRoomState());
+
+    // 初始化对战状态
+    this.state.status = "waiting";
+
+    // // 将 messages 中定义的每一个消息类型注册到 Colyseus 的消息系统
+    // (Object.keys(this.messages) as Array<keyof typeof this.messages>).forEach((type) => {
+    //   this.onMessage(type, (client, message) => {
+    //     this.messages[type](client, message as any);
+    //   });
+    // });
     (Object.keys(this.messages) as Array<keyof typeof this.messages>).forEach((type) => {
       this.onMessage(type, (client, message) => {
-        this.messages[type](client, message as any);
+        // 确保调用时上下文正确
+        this.messages[type].call(this, client, message);
       });
     });
   }
@@ -113,6 +131,17 @@ export class MyRoom extends Room {
       const currentScore = `${this.state.leftScore}:${this.state.rightScore}`;
       client.send("score", currentScore);
     }
+
+
+    // 2. 当有人加入时，实时更新元数据中的人数
+    // 虽然 matchMaker 会追踪 clients，但在元数据中更新状态更直观
+    if (this.state.players.size >= this.maxClients) {
+      this.state.status = "playing";
+      this.lock(); 
+      
+      // 更新元数据，告诉大厅：这个房间已经打起来了，别显示了
+      this.setMetadata({ ...this.metadata, status: "playing" });
+    }
   }
 
   // 当有客户端离开房间时调用
@@ -121,6 +150,14 @@ export class MyRoom extends Room {
 
     // 从状态中删除玩家实例
     this.state.players.delete(client.sessionId);
+
+    // 2. 逻辑改进：如果有人离开了，且当前人数少于最大人数，解锁房间
+    // 这样大厅列表会重新显示这个房间，新玩家也可以通过 joinOrCreate 匹配进来补位
+    if (this.state.players.size < this.maxClients) {
+      this.state.status = "waiting"; // 将状态改回等待中
+      this.unlock();                 // 核心：解锁房间
+      console.log("有人退出，房间已解锁以供新玩家匹配");
+    }
 
     // 若房间空了，可重置比分或执行其他清理逻辑
     if (this.state.players.size === 0) {

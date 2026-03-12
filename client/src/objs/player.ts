@@ -56,6 +56,11 @@ export default (room: Room<MyRoomState>, player: Player) => ([
             if (player.sessionId == room.sessionId) onLocalPlayerCreated(room, this);
         },
         update(this: GameObj) {
+            // 如果服务器状态里已经没这个人了，直接自杀，防止幽灵
+            if (!room.state.players.has(player.sessionId)) {
+                k.destroy(this);
+                return;
+            }
             this.pos.x = k.lerp(
                 this.pos.x,
                 player.x,
@@ -99,24 +104,22 @@ function onLocalPlayerCreated(room: Room<MyRoomState>, playerObj: GameObj) {
             k.clamp(moveMinX, newX, moveMaxX),
             k.clamp(moveMinY, newY, moveMaxY),
         );
-
-        console.log("Sending move to server:", mousePos); // 添加这一行
         room.send("move", mousePos);
     };
 
-    k.onMouseMove(move);
-    k.onTouchStart(pos => {
+    // 👉 核心修复：把事件赋值给变量，方便后续清理！
+    const evMove = k.onMouseMove(move);
+    const evTouchStart = k.onTouchStart(pos => {
         touchPos = pos;
-        // also update mousePos for consistency on touchstart
         mousePos = pos;
     });
-    k.onTouchMove((pos) => {
+    const evTouchMove = k.onTouchMove((pos) => {
         move(pos, pos.sub(touchPos).scale(window.devicePixelRatio), false);
         touchPos = pos;
     });
 
-    // 支持点击移动（点击画布将角色移动到该位置）
-    k.onClick(() => {
+    // 支持点击移动
+    const evClick = k.onClick(() => {
         if (!playerObj.controllable) return;
 
         const pos = k.mousePos ? k.mousePos() : playerObj.pos;
@@ -125,9 +128,15 @@ function onLocalPlayerCreated(room: Room<MyRoomState>, playerObj: GameObj) {
             k.clamp(moveMinX, pos.x, moveMaxX),
             k.clamp(moveMinY, pos.y, moveMaxY),
         );
-
-        console.log("Sending click move to server:", mousePos);
         room.send("move", mousePos);
     });
 
+    // 👉 终极必杀技：当这个玩家对象被销毁（比如跳转大厅）时，强制拔掉所有鼠标/触摸监听！
+    // 这样回到大厅后，就绝对不会有“幽灵事件”抢占鼠标了！
+    playerObj.onDestroy(() => {
+        evMove.cancel();
+        evTouchStart.cancel();
+        evTouchMove.cancel();
+        evClick.cancel();
+    });
 }
