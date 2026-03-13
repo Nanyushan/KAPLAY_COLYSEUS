@@ -67,7 +67,7 @@ export function createGameScene() {
     // ==========================================
     // 3. 原有的对战场景渲染逻辑
     // ==========================================
-    k.add(playground());
+    k.add(playground(room));
     k.add(puck(room));
     k.add(score(room));
 
@@ -150,6 +150,39 @@ export function createGameScene() {
 
       k.go("lobby");
     });
+
+    // ==========================================
+    // 5. 动态人数等待 UI
+    // ==========================================
+    const statusLabel = k.add([
+      k.text("Waiting for players...", { size: 24, font: "monospace" }),
+      k.pos(k.center()),
+      k.anchor("center"),
+      k.z(2000), // 确保在最上层
+      k.fixed()
+    ]);
+
+    // // 监听房间状态和人数变化
+    // const $ = getStateCallbacks(room);
+
+    // 监听状态改变
+    $(room.state).listen("status", (status) => {
+      if (status === "playing") {
+        k.destroy(statusLabel); // 游戏开始，销毁提示
+      }
+    });
+
+    // 监听人数改变以更新进度
+    $(room.state.players).onAdd(() => updateStatusText());
+    $(room.state.players).onRemove(() => updateStatusText());
+
+    function updateStatusText() {
+      if (room.state.status !== "playing") {
+        statusLabel.text = `Waiting... (${room.state.players.size}/${room.state.maxClients})`;
+      }
+    }
+    updateStatusText(); // 初始执行一次
+
   });
 }
 

@@ -97,7 +97,7 @@ export function createLobbyScene() {
                 playerObj.onUpdate(() => {
                     const dist = playerObj.pos.dist(k.vec2(playerObj.targetX, playerObj.targetY));
 
-                    // ⚠️ 修复 2：如果距离超过 200（比如刚进大厅），直接瞬移，防止从屏幕外慢慢飘过来
+                    // 如果距离超过 200（比如刚进大厅），直接瞬移，防止从屏幕外慢慢飘过来
                     if (dist > 200) {
                         playerObj.pos.x = playerObj.targetX;
                         playerObj.pos.y = playerObj.targetY;
@@ -122,7 +122,7 @@ export function createLobbyScene() {
         // ==========================================
         const panelX = k.width() - 300;
 
-        // ⚠️ 修复 3：改用 onMousePress，它比 onClick 更底层，绝不会被残留的 UI 吞掉事件
+        // 改用 onMousePress，它比 onClick 更底层，绝不会被残留的 UI 吞掉事件
         k.onMousePress(() => {
             const mPos = k.mousePos();
 
@@ -130,7 +130,7 @@ export function createLobbyScene() {
                 // 1. 发给服务器，让别人看到你动
                 room.send("move", { x: mPos.x, y: mPos.y });
 
-                // 2. ⚠️ 核心魔法：客户端预测 (Client Prediction)
+                // 2. 核心魔法：客户端预测 (Client Prediction)
                 // 不等服务器慢吞吞的回复，你自己的小人立刻、马上开始移动！彻底消除卡顿感！
                 const localPlayer = playerSprites[room.sessionId];
                 if (localPlayer) {
@@ -265,6 +265,103 @@ export function createLobbyScene() {
                 });
             });
         });
+
+        // ==========================================
+        // 模块 5：新增“快速开始”匹配功能
+        // ==========================================
+
+        // 1. 添加快速开始按钮
+        const quickStartBtn = k.add([
+            k.rect(260, 50, { radius: 8 }),
+            k.pos(panelX + 20, 80), // 放在标题下方
+            k.color(k.rgb(231, 76, 60)), // 红色，醒目
+            k.area(),
+            k.fixed(),
+            k.z(51),
+        ]);
+
+        k.add([
+            k.text("Quick Start", { size: 20 }),
+            k.pos(panelX + 130, 105),
+            k.anchor("center"),
+            k.color(k.rgb(255, 255, 255)),
+            k.fixed(),
+            k.z(52)
+        ]);
+
+        // 2. 按钮点击处理
+        quickStartBtn.onClick(() => {
+            room.send("quick_start");
+        });
+
+        // 3. 处理服务端返回的匹配结果
+        room.onMessage("match_result", (data: { roomId: string | null, error?: string }) => {
+            if (data.roomId) {
+                // 找到房间，直接加入
+                room.removeAllListeners();
+                room.leave();
+                k.go("game", { mode: "join", roomId: data.roomId });
+            } else if (data.roomId === null) {
+                // 没有可用房间，自动创建一个
+                room.removeAllListeners();
+                room.leave();
+                k.go("game", { mode: "create", roomName: "Quick Match" });
+            } else {
+                alert("Matchmaking failed: " + (data.error || "unknown error"));
+            }
+        });
+
+        // ==========================================
+        // 模块 6：房间列表渲染优化 (确保列表往下移动，不挡住按钮)
+        // ==========================================
+        // src/scenes/lobby.ts 模块 6
+
+        room.onMessage("game_rooms_update", (rooms: any[]) => {
+            k.destroyAll("room_card");
+            roomUIElements.forEach(item => k.destroy(item));
+            roomUIElements = [];
+
+            rooms.forEach((gameRoom, index) => {
+                if (gameRoom.clients <= 0) return;
+
+                const isFull = gameRoom.clients >= gameRoom.maxClients;
+                const startX = panelX + 20;
+                const startY = 150 + index * 70; // 偏移 150 避开按钮
+
+                // 1. 绘制背景卡片
+                const cardBg = k.add([
+                    k.rect(260, 60, { radius: 8 }),
+                    k.pos(startX, startY),
+                    k.color(isFull ? k.rgb(150, 150, 150) : k.rgb(52, 152, 219)),
+                    k.area(),
+                    k.fixed(),
+                    k.z(51),
+                    "room_card"
+                ]);
+
+                // 2. 绘制房间名（核心修复点）
+                const rName = gameRoom.metadata?.roomName || "未命名房间";
+                const cardText = k.add([
+                    k.text(`${rName} (${gameRoom.clients}/${gameRoom.maxClients})`, { size: 16 }),
+                    k.pos(startX + 15, startY + 20),
+                    k.color(k.rgb(255, 255, 255)),
+                    k.fixed(),
+                    k.z(52),
+                    "room_card"
+                ]);
+
+                roomUIElements.push(cardBg, cardText);
+
+                cardBg.onClick(() => {
+                    if (!isFull) {
+                        room.removeAllListeners();
+                        room.leave();
+                        k.go("game", { mode: "join", roomId: gameRoom.roomId });
+                    }
+                });
+            });
+        });
+
 
     });
 

@@ -148,6 +148,12 @@ export default (room: Room<MyRoomState>) => [
             // - 如果本地为权威（localPlayerId === lastHitBy），则向服务器上报当前位置
             // - 否则，使用服务器 state 中的 puckX/puckY 做插值以平滑同步
             this.onUpdate(() => {
+                // 👉 核心限制：如果房间状态不是 playing，冰球不动
+                if (room.state.status !== "playing") {
+                    this.vel = k.vec2(0); // 强制静止
+                    return; 
+                }
+                
                 // 当前客户端为权威：发送实时位置到服务器
                 if (localPlayerId == (room.state?.lastHitBy ?? localPlayerId)) {
                     room.send("puck", this.pos);

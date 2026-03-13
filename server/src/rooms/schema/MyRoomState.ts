@@ -27,6 +27,9 @@ export class MyRoomState extends Schema {
     // MapSchema 的增删改会被自动推送到客户端，客户端可监听 onAdd/onRemove/onChange
     @type({ map: Player }) players = new MapSchema<Player>();
 
+    // 👉 增加这一行，确保客户端能读取到总人数限制
+    @type("number") public maxClients: number = 4;
+
     // 增加房间状态：'waiting' (等待匹配), 'playing' (已开始), 'finished' (已结束)
     @type("string") public status: string = "waiting";
 

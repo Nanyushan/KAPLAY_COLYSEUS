@@ -14,8 +14,8 @@ const avatars = [
  * - 处理客户端的 join/leave 生命周期
  */
 export class MyRoom extends Room {
-  // 限制最多同时在线玩家数（2 人对战）
-  maxClients = 2;
+  // 限制最多同时在线玩家数（4 人对战）
+  maxClients = 4;
 
   // 初始房间状态实例（会同步给客户端）
   state = new MyRoomState();
@@ -78,69 +78,74 @@ export class MyRoom extends Room {
 
   // 当房间实例被创建时调用（一次）
   onCreate(options: any) {
-    // 1. 设置更丰富的元数据，方便大厅玩家筛选
+
+    // 2. 设置元数据
     this.setMetadata({
-        roomName: options.roomName || "未命名房间",
-        creator: options.creatorName || "匿名",
-        level: options.level || "新手",
-        // 标记是否为私有房间，如果是，在大厅列表查询时可以过滤掉
-        isPrivate: options.isPrivate || false 
+      // 优先使用传入的 roomName，如果没有（如快速开始），则显示“障碍物挑战赛”
+      roomName: options.roomName || "快速开始",
+      creator: options.name || "System",
+      level: options.level || "Casual",
+      isPrivate: false,
+      status: "waiting",
+      // 将生成的障碍物数组同步给客户端
     });
 
     this.setState(new MyRoomState());
-
-    // 初始化对战状态
     this.state.status = "waiting";
+    this.state.maxClients = this.maxClients;
 
-    // // 将 messages 中定义的每一个消息类型注册到 Colyseus 的消息系统
-    // (Object.keys(this.messages) as Array<keyof typeof this.messages>).forEach((type) => {
-    //   this.onMessage(type, (client, message) => {
-    //     this.messages[type](client, message as any);
-    //   });
-    // });
+    // 注册消息监听（保持您原来的逻辑）
     (Object.keys(this.messages) as Array<keyof typeof this.messages>).forEach((type) => {
       this.onMessage(type, (client, message) => {
-        // 确保调用时上下文正确
         this.messages[type].call(this, client, message);
       });
     });
   }
 
-  // 当有客户端加入房间时调用
+  // server/src/rooms/MyRoom.ts
+
   onJoin(client: Client, options: any) {
     console.log(client.sessionId, "joined!");
 
-    // 创建新的 Player 状态并初始化位置、队伍、头像等
     const player = new Player();
-    // 简单分队：交替分配 left / right
-    player.team = this.teamPlayersCount() % 2 ? "right" : "left";
-    player.x = player.team == "left" ? GAME_WIDTH / 4 : GAME_WIDTH - (GAME_WIDTH / 4);
-    player.y = GAME_HEIGHT / 2;
     player.sessionId = client.sessionId;
+    player.name = options.name || "新玩家";
     player.avatar = avatars[Math.floor(Math.random() * avatars.length)];
 
-    // 将玩家添加到状态 Map（会触发客户端的 onAdd 回调）
+    // 动态平衡分队逻辑
+    const leftCount = this.teamPlayersCount("left");
+    const rightCount = this.teamPlayersCount("right");
+
+    if (leftCount <= rightCount) {
+      player.team = "left";
+      player.x = GAME_WIDTH / 4;
+    } else {
+      player.team = "right";
+      player.x = GAME_WIDTH - (GAME_WIDTH / 4);
+    }
+    player.y = GAME_HEIGHT / 2 + (Math.random() * 100 - 50); // Y轴微调防止重叠
+
     this.state.players.set(client.sessionId, player);
 
-    // 如果是第一个玩家，初始化比分并广播；否则只把当前比分发给新加入者
-    if (this.state.players.size === 1) {
-      this.state.leftScore = 0;
-      this.state.rightScore = 0;
-      this.broadcast("score", "0:0");
-    } else {
-      const currentScore = `${this.state.leftScore}:${this.state.rightScore}`;
-      client.send("score", currentScore);
-    }
+    /// 发送/初始化比分逻辑保持不变...
+    const currentScore = `${this.state.leftScore}:${this.state.rightScore}`;
+    client.send("score", currentScore);
 
+    // 当有人加入时，再次明确更新元数据状态
+    this.setMetadata({
+      ...this.metadata,
+      clients: this.state.players.size,
+      status: this.state.players.size >= this.maxClients ? "playing" : "waiting"
+    });
 
-    // 2. 当有人加入时，实时更新元数据中的人数
-    // 虽然 matchMaker 会追踪 clients，但在元数据中更新状态更直观
     if (this.state.players.size >= this.maxClients) {
       this.state.status = "playing";
-      this.lock(); 
-      
-      // 更新元数据，告诉大厅：这个房间已经打起来了，别显示了
+      this.lock();
       this.setMetadata({ ...this.metadata, status: "playing" });
+    } else {
+      this.state.status = "waiting";
+      // 即使状态没变，也要确保 Metadata 的 status 是最新的
+      this.setMetadata({ ...this.metadata, status: "waiting" });
     }
   }
 
@@ -151,12 +156,13 @@ export class MyRoom extends Room {
     // 从状态中删除玩家实例
     this.state.players.delete(client.sessionId);
 
-    // 2. 逻辑改进：如果有人离开了，且当前人数少于最大人数，解锁房间
+    // 2. 如果有人离开了，且当前人数少于最大人数，解锁房间
     // 这样大厅列表会重新显示这个房间，新玩家也可以通过 joinOrCreate 匹配进来补位
     if (this.state.players.size < this.maxClients) {
-      this.state.status = "waiting"; // 将状态改回等待中
-      this.unlock();                 // 核心：解锁房间
-      console.log("有人退出，房间已解锁以供新玩家匹配");
+      this.state.status = "waiting";
+      this.unlock();
+      // 有人退出导致房间空出位置，立即更新元数据让“快速开始”能搜到它
+      this.setMetadata({ ...this.metadata, status: "waiting" });
     }
 
     // 若房间空了，可重置比分或执行其他清理逻辑
